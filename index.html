@@ -41,6 +41,7 @@
   model-viewer{flex:1;width:100%;--poster-color:transparent;--progress-bar-color:var(--accent)}
   .bottom{padding:12px 16px calc(env(safe-area-inset-bottom) + 18px);text-align:center}
   .hint{color:var(--muted);font-size:13px;margin-bottom:12px}
+  .ar-tip{color:var(--ink);font-size:13px;line-height:1.4;max-width:420px;margin:0 auto 12px}
   .ar-btn{border:0;background:var(--accent);color:var(--accent-ink);font:700 18px Manrope,sans-serif;padding:17px 28px;border-radius:999px;width:100%;max-width:420px;box-shadow:0 8px 24px rgba(180,71,90,.35)}
   .no-ar{color:var(--muted);font-size:13px;margin-top:10px;display:none}
   .size{display:inline-block;margin-top:2px;font-size:13px;color:var(--muted)}
@@ -62,13 +63,14 @@
     <button class="back" id="back" aria-label="Назад">←</button>
     <div><h2 id="v-title"></h2><span class="size" id="v-size"></span></div>
   </div>
-  <model-viewer id="mv" camera-controls touch-action="pan-y" ar ar-modes="webxr scene-viewer quick-look"
+  <model-viewer id="mv" camera-controls touch-action="pan-y" ar ar-modes="scene-viewer webxr quick-look"
     ar-scale="fixed" ar-placement="floor" shadow-intensity="1" shadow-softness="0.8" exposure="1.05"
     environment-image="neutral" auto-rotate interaction-prompt="none">
     <button slot="ar-button" style="display:none"></button>
   </model-viewer>
   <div class="bottom">
     <div class="hint">Крутите пальцем · сведите два пальца — приблизить</div>
+    <div class="hint ar-tip">📱 Перед тем как поставить: медленно поводите телефоном над столом 2–3 секунды. Лучше при ярком свете и не на белом глянцевом столе.</div>
     <button class="ar-btn" id="ar">Поставить на стол</button>
     <div class="no-ar" id="no-ar">Откройте эту страницу на телефоне, чтобы поставить торт на стол через камеру.</div>
   </div>
