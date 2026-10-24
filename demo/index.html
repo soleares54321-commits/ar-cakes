@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cakes in 3D & AR</title>
+<meta name="description" content="Pick a cake and see it on your own table in real size before you order.">
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
+} }
+</script>
+<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@3.5.0/dist/model-viewer.min.js"></script>
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1 id="bk-name">Your Bakery</h1>
+    <p id="bk-tag" class="muted"></p>
+  </div>
+  <a class="btn ghost" href="builder.html" id="to-builder">Plan an event table →</a>
+</header>
+
+<nav class="chips" id="chips" aria-label="Categories"></nav>
+<main class="grid" id="grid" aria-live="polite"><p class="muted">Loading…</p></main>
+
+<footer class="foot">
+  <p id="bk-note"></p>
+  <p id="credits"></p>
+  <p>Prototype · <a href="admin.html">Catalog editor</a></p>
+</footer>
+
+<!-- Product sheet -->
+<section id="viewer" class="sheet" aria-hidden="true">
+  <div class="sheet-bar">
+    <button class="icon-btn" id="back" aria-label="Back">←</button>
+    <h2 id="v-title"></h2>
+  </div>
+  <model-viewer id="mv" camera-controls touch-action="pan-y" ar ar-modes="scene-viewer webxr quick-look"
+    ar-scale="fixed" ar-placement="floor" shadow-intensity="1" shadow-softness="0.8" exposure="1.05"
+    camera-orbit="-30deg 70deg auto" interaction-prompt="none" alt="">
+    <button slot="ar-button" style="display:none"></button>
+    <div slot="progress-bar"></div>
+  </model-viewer>
+  <div class="sheet-body">
+    <div class="facts" id="v-facts"></div>
+    <p class="muted small" id="v-desc"></p>
+    <div id="cmp-legend" class="cmp-legend" hidden></div>
+    <p class="tip">Before placing: slowly move your phone over the table for 2–3 seconds. Bright light helps.</p>
+    <div class="row">
+      <button class="btn primary" id="ar-btn">View on your table</button>
+      <a class="btn" id="order-btn" target="_blank" rel="noopener">Order</a>
+    </div>
+    <div class="row">
+      <button class="btn ghost" id="cmp-btn">Compare sizes</button>
+      <a class="btn ghost" id="add-btn">Add to event table</a>
+    </div>
+    <div id="no-ar" class="no-ar" hidden>
+      <p><b>AR works on a phone.</b> Scan this code with your phone camera to open this cake there:</p>
+      <div id="qr" class="qr"></div>
+    </div>
+    <p id="ar-err" class="err" hidden></p>
+  </div>
+</section>
+
+<script type="module">
+import { loadCatalog, money, esc, orderUrl, track, initAnalytics, qrSvg, isMobile, servingsRange } from './js/common.js';
+
+const $ = id => document.getElementById(id);
+let cat, current = null, compareMode = false, blobUrl = null, filter = 'All';
+const mv = $('mv');
+
+try { cat = await loadCatalog(); } catch (e) { $('grid').innerHTML = `<p class="err">Could not load catalog.json (${esc(e.message)}). Open the site through a web server, not as a file.</p>`; throw e; }
+initAnalytics(cat);
+document.title = cat.bakery.name + ' — Cakes in 3D & AR';
+$('bk-name').textContent = cat.bakery.name + (cat.bakery.location ? ' · ' + cat.bakery.location : '');
+$('bk-tag').textContent = cat.bakery.tagline || '';
+$('bk-note').textContent = cat.bakery.note || '';
+$('credits').textContent = cat.credits || '';
+
+const cats = ['All', ...new Set(cat.products.map(p => p.category).filter(Boolean))];
+function renderChips() {
+  $('chips').innerHTML = cats.map(c => `<button class="chip${c === filter ? ' on' : ''}" data-c="${esc(c)}">${esc(c)}</button>`).join('');
+}
+function renderGrid() {
+  const list = cat.products.filter(p => filter === 'All' || p.category === filter);
+  $('grid').innerHTML = list.map(p => `
+    <article class="card" data-id="${esc(p.id)}" tabindex="0">
+      <img src="${esc(p.poster)}" alt="${esc(p.name)}" loading="lazy" onerror="this.style.visibility='hidden'">
+      <div class="info">
+        <h3>${esc(p.name)}</h3>
+        <p class="muted small">${esc(p.size)}${p.servings ? ' · serves ' + esc(p.servings) : ''}</p>
+        <p class="price">${money(p.price, cat.bakery.currency)}</p>
+        <span class="go">View in 3D →</span>
+      </div>
+    </article>`).join('') || '<p class="muted">No products in this category.</p>';
+}
+renderChips(); renderGrid();
+$('chips').onclick = e => { const b = e.target.closest('.chip'); if (!b) return; filter = b.dataset.c; renderChips(); renderGrid(); };
+$('grid').onclick = e => { const c = e.target.closest('.card'); if (c) openProduct(c.dataset.id); };
+$('grid').onkeydown = e => { if (e.key === 'Enter') { const c = e.target.closest('.card'); if (c) openProduct(c.dataset.id); } };
+
+function groupOf(p) {
+  if (!p.compareGroup) return [];
+  return cat.products.filter(q => q.compareGroup === p.compareGroup);
+}
+
+function setSingle(p) {
+  compareMode = false;
+  clearHotspots();
+  mv.setAttribute('ar-modes', 'scene-viewer webxr quick-look');
+  mv.src = p.glb;
+  if (p.usdz) mv.setAttribute('ios-src', p.usdz); else mv.removeAttribute('ios-src');
+  mv.poster = p.poster || '';
+  mv.alt = p.name;
+  $('cmp-legend').hidden = true;
+  $('cmp-btn').textContent = 'Compare sizes';
+  $('ar-btn').textContent = 'View on your table';
+}
+
+function openProduct(id, push = true) {
+  const p = cat.byId[id]; if (!p) return;
+  current = p;
+  $('v-title').textContent = p.name;
+  $('v-facts').innerHTML = `<span>${esc(p.size)}</span>${p.servings ? `<span>Serves ${esc(p.servings)}</span>` : ''}<span class="price">${money(p.price, cat.bakery.currency)}</span>`;
+  $('v-desc').textContent = p.description || '';
+  $('order-btn').href = orderUrl(cat, p);
+  $('add-btn').href = 'builder.html#add=' + encodeURIComponent(p.id);
+  $('cmp-btn').hidden = groupOf(p).length < 2;
+  $('no-ar').hidden = true; $('ar-err').hidden = true;
+  setSingle(p);
+  $('viewer').classList.add('open'); $('viewer').setAttribute('aria-hidden', 'false');
+  document.body.style.overflow = 'hidden';
+  if (push) history.pushState({ id }, '', '#p=' + encodeURIComponent(id));
+  track('view_product', { id });
+}
+function closeProduct() {
+  $('viewer').classList.remove('open'); $('viewer').setAttribute('aria-hidden', 'true');
+  document.body.style.overflow = ''; current = null;
+}
+$('back').onclick = () => (location.hash ? history.back() : closeProduct());
+addEventListener('popstate', route);
+function route() {
+  const h = new URLSearchParams(location.hash.slice(1));
+  const id = h.get('p');
+  if (id && cat.byId[id]) { openProduct(id, false); if (h.get('compare') === '1') toggleCompare(); }
+  else closeProduct();
+}
+route();
+
+// ---------- AR ----------
+$('ar-btn').onclick = async () => {
+  track('ar_click', { id: current?.id, compare: compareMode });
+  if (!isMobile() || !mv.canActivateAR) {
+    $('no-ar').hidden = false;
+    $('qr').innerHTML = await qrSvg(location.href).catch(() => '<p class="muted">' + esc(location.href) + '</p>');
+    return;
+  }
+  mv.activateAR();
+};
+mv.addEventListener('ar-status', e => {
+  if (e.detail.status === 'session-started') track('ar_session_started', { id: current?.id });
+  if (e.detail.status === 'failed') { $('ar-err').hidden = false; $('ar-err').textContent = 'AR could not start on this device. Try Chrome on Android or Safari on iPhone.'; }
+});
+mv.addEventListener('quick-look-button-tapped', () => track('ar_quicklook_tap', { id: current?.id }));
+$('order-btn').onclick = () => track('order_click', { id: current?.id });
+
+// ---------- Size comparison (built in the browser from the product models) ----------
+function clearHotspots() { mv.querySelectorAll('[slot^="hotspot"]').forEach(h => h.remove()); }
+async function toggleCompare() {
+  const p = current; if (!p) return;
+  if (compareMode) { setSingle(p); return; }
+  const group = groupOf(p); if (group.length < 2) return;
+  $('cmp-btn').disabled = true; $('cmp-btn').textContent = 'Building…';
+  try {
+    const kit = await import('./js/kit.js');
+    // load to know widths, then line up smallest -> largest
+    const models = await Promise.all(group.map(q => kit.loadModel(q.glb)));
+    const order = group.map((q, i) => ({ q, m: models[i] })).sort((a, b) => a.m.userData.radius - b.m.userData.radius);
+    const gap = 0.04; let x = 0; const items = [];
+    order.forEach(({ q, m }, i) => { const r = m.userData.radius; x += (i ? gap : 0) + r; items.push({ pid: q.id, x, z: 0, rot: 0, r, h: m.userData.size.y }); x += r; });
+    const root = await kit.buildArrangement(items, cat.byId, { center: true });
+    const off = root.children[0].position;
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    blobUrl = URL.createObjectURL(await kit.toGLB(root));
+    compareMode = true;
+    mv.removeAttribute('ios-src');                 // model-viewer generates USDZ for iPhone itself
+    mv.setAttribute('ar-modes', 'webxr quick-look'); // Scene Viewer cannot open in-browser (blob) files
+    mv.poster = '';
+    mv.src = blobUrl;
+    clearHotspots();
+    items.forEach((it, i) => {
+      const q = cat.byId[it.pid];
+      const b = document.createElement('button');
+      b.className = 'hotspot'; b.slot = 'hotspot-' + i;
+      b.dataset.position = `${(it.x + off.x).toFixed(3)} ${(it.h + 0.01).toFixed(3)} ${off.z.toFixed(3)}`;
+      b.dataset.normal = '0 1 0';
+      b.innerHTML = `<b>${esc(q.size)}</b><br>${q.servings ? 'serves ' + esc(q.servings) : ''}`;
+      mv.appendChild(b);
+    });
+    $('cmp-legend').hidden = false;
+    $('cmp-legend').innerHTML = items.map(it => { const q = cat.byId[it.pid]; return `<span><b>${esc(q.size)}</b> serves ${esc(q.servings || '?')} · ${money(q.price, cat.bakery.currency)}</span>`; }).join('');
+    $('ar-btn').textContent = 'See all sizes on your table';
+    $('cmp-btn').textContent = 'Back to one cake';
+    track('compare_open', { id: p.id });
+  } catch (e) {
+    console.error(e); $('ar-err').hidden = false; $('ar-err').textContent = 'Could not build the comparison: ' + e.message;
+    $('cmp-btn').textContent = 'Compare sizes';
+  } finally { $('cmp-btn').disabled = false; }
+}
+$('cmp-btn').onclick = toggleCompare;
+window.__app = { cat, openProduct, toggleCompare };   // for automated tests
+</script>
+</body>
+</html>

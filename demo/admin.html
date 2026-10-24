@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Catalog Editor</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="adm">
+  <header>
+    <h1>Catalog editor</h1>
+    <p class="muted small">Changes are kept in this browser as a draft. When done, press <b>Download catalog.json</b> and replace the file on the website.
+      Model files (.glb/.usdz) and pictures must be copied into the <code>models/</code> and <code>posters/</code> folders.</p>
+    <p id="draft-banner" class="small" hidden>Editing a saved draft. <button class="btn sm ghost" id="discard">Discard draft &amp; reload catalog.json</button></p>
+  </header>
+
+  <div class="row" style="flex-wrap:wrap">
+    <button class="btn primary" id="export">Download catalog.json</button>
+    <a class="btn" href="index.html?draft=1" target="_blank" rel="noopener">Preview site with this draft</a>
+    <label class="btn ghost" style="color:var(--ink)">Open a catalog.json… <input type="file" id="import" accept=".json,application/json" hidden></label>
+  </div>
+  <p id="problems" class="err small"></p>
+
+  <fieldset id="bakery"><legend>Bakery</legend></fieldset>
+
+  <div class="row" style="align-items:center"><h2 style="flex:1">Products (<span id="count">0</span>)</h2><button class="btn" id="add">+ Add product</button></div>
+  <div id="list" style="display:flex;flex-direction:column;gap:10px"></div>
+</div>
+
+<div class="modal" id="pv"><div class="box">
+  <div class="row" style="align-items:center"><h2 style="flex:1" id="pv-title">Preview</h2><button class="icon-btn" id="pv-close">✕</button></div>
+  <div id="pv-holder"></div>
+  <p id="pv-dims" class="small"></p>
+</div></div>
+
+<script type="module">
+import { DRAFT_KEY, loadModelViewer, esc } from './js/common.js';
+const $ = id => document.getElementById(id);
+let cat;
+const localFiles = {};   // path -> blob URL of files picked in this session (for preview only)
+
+const BAKERY_FIELDS = [
+  ['name', 'Bakery name'], ['location', 'Location (shown after the name)'], ['tagline', 'Tagline'],
+  ['orderUrl', 'Default "Order" link'], ['currency', 'Currency (USD, CAD…)'], ['phone', 'Phone'],
+  ['note', 'Small note under the list'],
+];
+const P_FIELDS = [
+  ['id', 'ID (letters, digits, dash; unique)'], ['name', 'Name'], ['flavor', 'Flavor'], ['category', 'Category'],
+  ['size', 'Size label (e.g. 10")'], ['servings', 'Serves (e.g. 18-20)'], ['price', 'Price (number)'],
+  ['orderUrl', 'Order link (empty = bakery default)'], ['compareGroup', 'Compare group (same = shown side by side)'],
+  ['glb', '3D file (.glb)'], ['usdz', 'iPhone file (.usdz)'], ['poster', 'Picture'], ['description', 'Description'],
+];
+
+async function load(fromDraft = true) {
+  let d = null;
+  if (fromDraft) { try { d = localStorage.getItem(DRAFT_KEY); } catch {} }
+  if (d) { cat = JSON.parse(d); $('draft-banner').hidden = false; }
+  else { cat = await (await fetch('catalog.json', { cache: 'no-cache' })).json(); $('draft-banner').hidden = true; }
+  cat.bakery ??= {}; cat.products ??= []; cat.analytics ??= {};
+  render();
+}
+function save() {
+  try { localStorage.setItem(DRAFT_KEY, JSON.stringify(cat)); $('draft-banner').hidden = false; } catch (e) { console.warn(e); }
+  validate();
+}
+function validate() {
+  const errs = [], seen = new Set();
+  cat.products.forEach((p, i) => {
+    const n = `#${i + 1} ${p.name || ''}`;
+    if (!/^[a-z0-9-]+$/i.test(p.id || '')) errs.push(`${n}: ID must use only letters, digits and dashes`);
+    if (seen.has(p.id)) errs.push(`${n}: ID "${p.id}" is used twice`); seen.add(p.id);
+    if (!p.glb) errs.push(`${n}: 3D file is empty`);
+    if (p.price !== '' && isNaN(+p.price)) errs.push(`${n}: price must be a number`);
+  });
+  $('problems').textContent = errs.join(' · ');
+  return errs;
+}
+function render() {
+  $('bakery').innerHTML = '<legend>Bakery</legend>' + BAKERY_FIELDS.map(([k, l]) =>
+    `<label>${esc(l)}<input data-b="${k}" value="${esc(cat.bakery[k] ?? '')}"></label>`).join('') +
+    `<label>Credits line (footer)<input data-root="credits" value="${esc(cat.credits ?? '')}"></label>` +
+    `<label>Google Analytics 4 ID (optional)<input data-a="ga4Id" value="${esc(cat.analytics.ga4Id ?? '')}"></label>` +
+    `<label>Plausible domain (optional)<input data-a="plausibleDomain" value="${esc(cat.analytics.plausibleDomain ?? '')}"></label>`;
+  $('count').textContent = cat.products.length;
+  $('list').innerHTML = cat.products.map((p, i) => `
+    <div class="prod" data-i="${i}">
+      <img src="${esc(localFiles[p.poster] || p.poster || '')}" alt="" onerror="this.style.visibility='hidden'">
+      <div class="f">${P_FIELDS.map(([k, l]) => `<label>${esc(l)}<input data-k="${k}" value="${esc(p[k] ?? '')}"></label>`).join('')}</div>
+      <div class="acts">
+        <button class="btn sm" data-act="up">↑</button><button class="btn sm" data-act="down">↓</button>
+        <label class="btn sm">Pick .glb…<input type="file" accept=".glb" data-pick="glb" hidden></label>
+        <label class="btn sm">Pick .usdz…<input type="file" accept=".usdz" data-pick="usdz" hidden></label>
+        <label class="btn sm">Pick picture…<input type="file" accept="image/*" data-pick="poster" hidden></label>
+        <button class="btn sm" data-act="preview">Check 3D &amp; size</button>
+        <button class="btn sm" data-act="dup">Duplicate</button>
+        <button class="btn sm ghost" data-act="del">Delete</button>
+      </div>
+    </div>`).join('');
+  validate();
+}
+
+$('bakery').oninput = e => {
+  const t = e.target;
+  if (t.dataset.b) cat.bakery[t.dataset.b] = t.value;
+  if (t.dataset.a) cat.analytics[t.dataset.a] = t.value.trim();
+  if (t.dataset.root) cat[t.dataset.root] = t.value;
+  save();
+};
+$('list').oninput = e => {
+  const t = e.target, row = t.closest('.prod'); if (!row || !t.dataset.k) return;
+  const p = cat.products[+row.dataset.i];
+  p[t.dataset.k] = t.dataset.k === 'price' ? (t.value === '' ? '' : (isNaN(+t.value) ? t.value : +t.value)) : t.value;
+  save();
+};
+$('list').onchange = e => {
+  const t = e.target, row = t.closest('.prod'); if (!row || !t.dataset.pick || !t.files[0]) return;
+  const f = t.files[0], p = cat.products[+row.dataset.i];
+  const path = (t.dataset.pick === 'poster' ? 'posters/' : 'models/') + f.name;
+  p[t.dataset.pick] = path; localFiles[path] = URL.createObjectURL(f);
+  save(); render();
+  if (t.dataset.pick === 'glb') preview(p);
+};
+$('list').onclick = e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const i = +b.closest('.prod').dataset.i, P = cat.products;
+  const act = b.dataset.act;
+  if (act === 'up' && i > 0) [P[i - 1], P[i]] = [P[i], P[i - 1]];
+  if (act === 'down' && i < P.length - 1) [P[i + 1], P[i]] = [P[i], P[i + 1]];
+  if (act === 'dup') P.splice(i + 1, 0, { ...P[i], id: P[i].id + '-copy', name: P[i].name + ' (copy)' });
+  if (act === 'del' && confirm(`Delete "${P[i].name}"?`)) P.splice(i, 1);
+  if (act === 'preview') return preview(P[i]);
+  save(); render();
+};
+$('add').onclick = () => {
+  cat.products.push({ id: 'new-cake-' + (cat.products.length + 1), name: 'New cake', flavor: '', category: 'Bundt Cakes', size: '8"', servings: '8-10', price: '', description: '', glb: 'models/', usdz: 'models/', poster: 'posters/', orderUrl: '', compareGroup: '' });
+  save(); render(); $('list').lastElementChild.scrollIntoView({ behavior: 'smooth' });
+};
+$('export').onclick = () => {
+  const errs = validate();
+  if (errs.length && !confirm('There are problems:\n' + errs.join('\n') + '\n\nDownload anyway?')) return;
+  const blob = new Blob([JSON.stringify(cat, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'catalog.json'; a.click();
+};
+$('import').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { cat = JSON.parse(await f.text()); cat.bakery ??= {}; cat.products ??= []; cat.analytics ??= {}; save(); render(); }
+  catch (err) { alert('This file is not a valid catalog: ' + err.message); }
+};
+$('discard').onclick = async () => { if (!confirm('Throw away the draft?')) return; try { localStorage.removeItem(DRAFT_KEY); } catch {} await load(false); };
+
+async function preview(p) {
+  await loadModelViewer();
+  $('pv-title').textContent = p.name;
+  const src = localFiles[p.glb] || p.glb;
+  $('pv-holder').innerHTML = `<model-viewer id="pv-mv" src="${esc(src)}" camera-controls shadow-intensity="1" style="width:100%;height:50vh"></model-viewer>`;
+  $('pv-dims').textContent = 'Loading…';
+  $('pv').classList.add('open');
+  const mv = $('pv-mv');
+  mv.addEventListener('load', () => {
+    const d = mv.getDimensions(), cm = v => (v * 100).toFixed(1), inch = v => (v * 39.37).toFixed(1);
+    $('pv-dims').innerHTML = `Real size in the file: width <b>${cm(d.x)} cm</b> (${inch(d.x)}"), depth ${cm(d.z)} cm, height <b>${cm(d.y)} cm</b> (${inch(d.y)}").` +
+      (d.x > 1.5 || d.y > 1.5 ? ' <span class="err">Looks too big — the file is probably not in meters.</span>' : '') +
+      (d.x < 0.02 ? ' <span class="err">Looks too small — the file is probably not in meters.</span>' : '');
+  }, { once: true });
+  mv.addEventListener('error', () => { $('pv-dims').innerHTML = '<span class="err">Could not open this 3D file. Check the file name and that it is in the models folder.</span>'; }, { once: true });
+}
+$('pv-close').onclick = () => $('pv').classList.remove('open');
+load();
+</script>
+</body>
+</html>

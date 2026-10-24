@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Event Table Builder</title>
+<meta name="description" content="Arrange cakes on a virtual table, share the layout, and see it in AR.">
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div class="b-wrap">
+  <header class="top">
+    <div>
+      <h1>Event table</h1>
+      <p class="muted small" id="bk-name"></p>
+    </div>
+    <a class="btn ghost sm" href="index.html">← All cakes</a>
+  </header>
+
+  <div class="b-stage" id="stage">
+    <div class="b-hint" id="hint">Drag a cake to move it · drag empty space to look around · pinch to zoom</div>
+    <div class="b-tools" id="sel-tools" hidden>
+      <button class="btn sm" data-act="rotl" aria-label="Rotate left">⟲ Rotate</button>
+      <button class="btn sm" data-act="rotr" aria-label="Rotate right">⟳</button>
+      <button class="btn sm" data-act="dup">Duplicate</button>
+      <button class="btn sm" data-act="del">Remove</button>
+    </div>
+  </div>
+
+  <section class="b-panel">
+    <div>
+      <label for="table">Table</label><br>
+      <select id="table"></select>
+    </div>
+    <div>
+      <label>Add to the table</label>
+      <div class="picker" id="picker"></div>
+    </div>
+    <div>
+      <label>On the table</label>
+      <ul class="items" id="items"></ul>
+      <p class="totals" id="totals"></p>
+      <p class="muted small" id="bk-note"></p>
+    </div>
+    <div class="row">
+      <button class="btn primary" id="ar-open">View on your table (AR)</button>
+    </div>
+    <div class="row">
+      <button class="btn" id="share">Share link</button>
+      <button class="btn" id="shot">Save picture</button>
+    </div>
+    <div class="row">
+      <button class="btn ghost" id="clear">Clear table</button>
+    </div>
+  </section>
+</div>
+
+<div class="modal" id="ar-modal" aria-hidden="true">
+  <div class="box">
+    <div class="row" style="align-items:center"><h2 style="flex:1">Your table in AR</h2><button class="icon-btn" id="ar-close" aria-label="Close">✕</button></div>
+    <label><input type="checkbox" id="with-table"> Include the table (place it on the floor)</label>
+    <div id="mv-holder"><p class="muted">Preparing 3D…</p></div>
+    <p class="tip">Point your phone at the table or floor and move it slowly for 2–3 seconds. Everything appears in real size.</p>
+    <button class="btn primary" id="ar-go" disabled>Place it in my room</button>
+    <p class="muted small" id="ar-note"></p>
+    <div class="row">
+      <button class="btn sm ghost" id="dl-glb">Download .glb</button>
+      <button class="btn sm ghost" id="dl-usdz">Download .usdz (iPhone)</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script type="module" src="js/builder.js"></script>
+</body>
+</html>
